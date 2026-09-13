@@ -1,5 +1,6 @@
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const root = path.resolve(__dirname, '..');
 const asarCli = path.join(root, 'node_modules', '.bin', 'asar');
@@ -13,26 +14,33 @@ let stderr = '';
 child.stdout.on('data', d => stdout += d.toString());
 child.stderr.on('data', d => stderr += d.toString());
 child.on('close', code => {
-  console.log('Exit code:', code);
-  console.log('STDOUT:', stdout.substring(0, 500));
-  console.log('STDERR:', stderr.substring(0, 500));
+  const result = {
+    exitCode: code,
+    stdout: stdout.substring(0, 1000),
+    stderr: stderr.substring(0, 1000),
+    keyFiles: {}
+  };
   
-  // Check if key files exist
-  const fs = require('fs');
   const keyFiles = [
-    path.join(outDir, 'dist', 'index.html'),
-    path.join(outDir, 'dist-electron', 'main.cjs'),
-    path.join(outDir, 'dist-electron', 'preload.cjs'),
+    'dist/index.html',
+    'dist-electron/main.cjs',
+    'dist-electron/preload.cjs',
   ];
   keyFiles.forEach(f => {
-    if (fs.existsSync(f)) {
-      const content = fs.readFileSync(f, 'utf8');
-      console.log(`\n=== ${f} (${content.length} bytes) ===`);
-      if (f.endsWith('.html') || f.endsWith('.cjs')) {
-        console.log(content);
-      }
+    const fullPath = path.join(outDir, f);
+    if (fs.existsSync(fullPath)) {
+      const content = fs.readFileSync(fullPath, 'utf8');
+      result.keyFiles[f] = {
+        exists: true,
+        size: content.length,
+        content: content
+      };
     } else {
-      console.log(`MISSING: ${f}`);
+      result.keyFiles[f] = { exists: false };
     }
   });
+  
+  fs.writeFileSync(path.join(__dirname, 'extract_result.json'), JSON.stringify(result, null, 2));
+  console.log('Done - result written to extract_result.json');
 });
+
