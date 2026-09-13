@@ -1,0 +1,17 @@
+{
+  "name": "aervyx",
+  "version": "1.0.0",
+  "description": "Aervyx Lua Development Environment",
+  "main": "dist-electron/main.cjs",
+  "author": "Aervyx",
+  "license": "MIT",
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "fengari-web": "^0.1.4",
+    "lucide-react": "^0.468.0",
+    "monaco-editor": "^0.56.0",
+    "monaco-themes": "^0.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

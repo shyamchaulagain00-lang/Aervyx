@@ -1,0 +1,11 @@
+// Build config used to package outside OneDrive (C:/TempAervyxOut) so large
+// binaries such as app.asar are never locked by cloud sync during packaging.
+// Duplicates the "build" field in package.json; keep the two in sync.
+{
+  "appId": "com.aervyx.executor",
+  "productName": "Aervyx",
+  "directories": { "output": "C:/TempAervyxOut", "buildResources": "build" },
+  "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+  "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
+  "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "artifactName": "Aervyx-Setup.exe", "shortcutName": "Aervyx" }
+}
