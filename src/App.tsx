@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Component, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor/editor/editor.api';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';
@@ -6,13 +6,16 @@ import jsonWorker from 'monaco-editor/language/json/json.worker?worker';
 import cssWorker from 'monaco-editor/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/language/html/html.worker?worker';
 import tsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
-import { Activity, BookOpen, ChevronDown, Code2, Copy, FilePlus2, FolderOpen, LayoutDashboard, Play, Save, Search, Settings2, Square, Trash2, X, Zap } from 'lucide-react';
-import { lua, lauxlib, lualib, to_jsstring, to_luastring } from 'fengari-web';
+import { Activity, Award, BookOpen, ChevronDown, Code2, Copy, Crown, FilePlus2, FolderOpen, LayoutDashboard, LayoutPanelLeft, Play, Radio, Save, Search, Settings2, Square, Trash2, X, Zap } from 'lucide-react';
+import { runLua, describeRuntime } from './lua/runtime';
+import { RUNTIME_LIMITS } from './lua/diagnostics';
+import { parseCommandInput } from './roblox-test/protocol';
 import './scripthub.css';
 import './settings.css';
+import './roblox-test/roblox-test.css';
 
 type Tab = { id: number; name: string; path?: string; code: string; dirty: boolean };
-type Log = { type: 'output' | 'error' | 'warning'; text: string };
+type Log = { type: 'output' | 'error' | 'warning'; text: string; time: string };
 type ScriptBloxScript = {
   _id?: string;
   slug?: string;
@@ -37,6 +40,9 @@ function getScriptImage(script: ScriptBloxScript) {
 const initialTabs: Tab[] = [{ id: 1, name: 'Script 1', code: '', dirty: false }];
 
 const defaultSettings: Record<string, boolean> = { alwaysOnTop: false, systemTray: false };
+
+const TAB_MENU_WIDTH = 168;
+const TAB_MENU_HEIGHT = 96;
 
 function readFontSize(): number {
   try {
@@ -108,34 +114,35 @@ class EditorPaneBoundary extends Component<{ children: ReactNode }, { failed: bo
   }
 }
 
-function runLua(source: string, write: (log: Log) => void) {
-  const state = lauxlib.luaL_newstate();
-  try {
-    lualib.luaL_openlibs(state);
-    lua.lua_pushjsfunction(state, (luaState: unknown) => {
-      const argumentCount = lua.lua_gettop(luaState);
-      const output = Array.from({ length: argumentCount }, (_, index) => to_jsstring(lua.lua_tostring(luaState, index + 1))).join('\t');
-      write({ type: 'output', text: output });
-      return 0;
-    });
-    lua.lua_setglobal(state, to_luastring('print'));
-    const result = lauxlib.luaL_loadstring(state, to_luastring(source));
-    if (result !== lua.LUA_OK) { write({ type: 'error', text: `Syntax error: ${to_jsstring(lua.lua_tostring(state, -1))}` }); return; }
-    const callResult = lua.lua_pcall(state, 0, lua.LUA_MULTRET, 0);
-    if (callResult !== lua.LUA_OK) write({ type: 'error', text: `Runtime error: ${to_jsstring(lua.lua_tostring(state, -1))}` });
-  } catch (error) {
-    write({ type: 'error', text: `Runtime error: ${error instanceof Error ? error.message : String(error)}` });
-  } finally {
-    lua.lua_close(state);
-  }
+function nowTime() {
+  try { return new Date().toLocaleTimeString('en-GB', { hour12: false }); } catch { return ''; }
 }
+
+// Runtime identity is read from the VM itself rather than hard-coded, so the
+// version shown in the UI cannot drift from the version actually executing code.
+const runtimeInfo = describeRuntime();
+const runtimeLimitsTooltip = RUNTIME_LIMITS.map((limit) => `${limit.title}: ${limit.detail}`).join('\n\n');
+
+// Execution lives in src/lua/runtime.ts and diagnostics in src/lua/diagnostics.ts.
+// Both are covered by scripts/test-lua-runtime.mjs (`npm run test:lua`). The old
+// inline harness was removed from this file because it could not be tested
+// without rendering the whole app, which is why three defects in it went
+// unnoticed: print({}) threw instead of printing, error({...}) replaced the real
+// message with an unrelated TypeError, and runtime errors arrived with no
+// traceback because lua_pcall was given errfunc 0.
 
 export default function App() {
   const [tabs, setTabs] = useState(initialTabs);
   const [active, setActive] = useState(1);
-  const [logs, setLogs] = useState<Log[]>([{ type: 'output', text: 'Aervyx runtime ready. Output from your scripts will appear here.' }]);
+  const [logs, setLogs] = useState<Log[]>([{ type: 'output', text: 'Aervyx runtime ready. Output from your scripts will appear here.', time: nowTime() }]);
   const [consoleTab, setConsoleTab] = useState<Log['type'] | 'console'>('output');
   const [running, setRunning] = useState(false);
+  const [executionMode, setExecutionMode] = useState<'lua' | 'studio-test'>('lua');
+  const [studioStatus, setStudioStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR'>('CONNECTING');
+  const [studioBridgeInfo, setStudioBridgeInfo] = useState<{ endpoint: string; pairingToken: string; error: string }>({ endpoint: 'http://127.0.0.1:43827', pairingToken: '', error: '' });
+  const [tabMenu, setTabMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const [nav, setNav] = useState('Executor');
   const [fontSize, setFontSize] = useState(readFontSize);
   const [scripts, setScripts] = useState<ScriptBloxScript[]>([]);
@@ -148,6 +155,17 @@ export default function App() {
   const [settings, setSettings] = useState<Record<string, boolean>>(readSettings);
   const editorRef = useRef<unknown>(null);
   const current = tabs.find((tab) => tab.id === active) || tabs[0];
+
+  useEffect(() => {
+    const bridge = getBridge();
+    if (!bridge) { setStudioStatus('DISCONNECTED'); setStudioBridgeInfo((info) => ({ ...info, error: 'Aervyx desktop bridge is available only in the Electron app.' })); return; }
+    let activeEffect = true;
+    const unsubscribe = bridge.onRobloxTestStatus((status) => { if (activeEffect) setStudioStatus(status); });
+    bridge.getRobloxTestInfo()
+      .then((info) => { if (activeEffect) { setStudioStatus(info.status); setStudioBridgeInfo(info); } })
+      .catch((error: unknown) => { if (activeEffect) { setStudioStatus('ERROR'); setStudioBridgeInfo((info) => ({ ...info, error: error instanceof Error ? error.message : String(error) })); } });
+    return () => { activeEffect = false; unsubscribe(); };
+  }, []);
 
   useEffect(() => { safeStorageSet('aervyx-font-size', String(fontSize)); }, [fontSize]);
   useEffect(() => { safeStorageSet('aervyx-settings', JSON.stringify(settings)); }, [settings]);
@@ -172,10 +190,61 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   });
+  useEffect(() => {
+    if (!tabMenu) return;
+    const closeMenu = () => setTabMenu(null);
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setTabMenu(null); };
+    window.addEventListener('click', closeMenu);
+    window.addEventListener('contextmenu', closeMenu);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', closeMenu);
+      window.removeEventListener('contextmenu', closeMenu);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [tabMenu]);
+  useEffect(() => {
+    if (renamingId === null) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setRenamingId(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [renamingId]);
 
   function updateCode(code: string) { setTabs((items) => items.map((tab) => tab.id === active ? { ...tab, code, dirty: true } : tab)); }
   function newTab() { const id = Date.now(); setTabs((items) => [...items, { id, name: `Script ${items.length + 1}`, code: '-- New Lua script\n\n', dirty: false }]); setActive(id); }
-  function closeTab(id: number) { if (tabs.length === 1) return; const index = tabs.findIndex((tab) => tab.id === id); const next = tabs.filter((tab) => tab.id !== id); setTabs(next); if (id === active) setActive(next[Math.max(0, index - 1)].id); }
+  function deleteTab(id: number) {
+    setTabMenu(null);
+    setRenamingId(null);
+    if (tabs.length === 1) {
+      const fresh = { id: Date.now(), name: 'Script 1', code: '', dirty: false };
+      setTabs([fresh]);
+      setActive(fresh.id);
+      return;
+    }
+    const index = tabs.findIndex((tab) => tab.id === id);
+    const next = tabs.filter((tab) => tab.id !== id);
+    setTabs(next);
+    if (id === active) setActive(next[Math.max(0, index - 1)].id);
+  }
+  function openTabMenu(event: ReactMouseEvent<HTMLButtonElement>, id: number) {
+    event.preventDefault();
+    setActive(id);
+    const x = Math.max(8, Math.min(window.innerWidth - TAB_MENU_WIDTH - 8, event.clientX));
+    const y = Math.max(8, Math.min(window.innerHeight - TAB_MENU_HEIGHT - 8, event.clientY));
+    setTabMenu({ id, x, y });
+  }
+  function startRename(id: number) {
+    const tab = tabs.find((item) => item.id === id);
+    setRenameValue(tab?.name ?? '');
+    setRenamingId(id);
+    setTabMenu(null);
+  }
+  function confirmRename() {
+    if (renamingId === null) return;
+    const trimmed = renameValue.trim();
+    if (trimmed.length > 0) setTabs((items) => items.map((item) => item.id === renamingId ? { ...item, name: trimmed } : item));
+    setRenamingId(null);
+  }
   async function save() {
     const bridge = getBridge();
     if (!bridge) { console.warn('[aervyx] save unavailable outside Electron'); return; }
@@ -240,8 +309,9 @@ export default function App() {
       setTabs((items) => [...items, { id, name: script.title || 'ScriptBlox script', code: source, dirty: false }]);
       setActive(id);
       if (executeAfter) {
-        setNav('Executor'); setRunning(true); setLogs([]); setConsoleTab('output');
-        setTimeout(() => { runLua(source, (log) => setLogs((items) => [...items, log])); setRunning(false); }, 0);
+        setExecutionMode('lua');
+        setNav('Executor');
+        runScript(source, script.title || 'ScriptBlox script');
       }
     } catch (error) {
       console.warn('[aervyx] scripthub raw fetch failed', error);
@@ -249,7 +319,85 @@ export default function App() {
     }
     finally { setScriptAction(null); }
   }
-  function execute() { setRunning(true); setLogs([]); setConsoleTab('output'); setTimeout(() => { runLua(current.code, (log) => setLogs((items) => [...items, log])); setRunning(false); }, 0); }
+  // Runs a script through the hardened harness. The chunk name is the tab name,
+  // which is what then appears in error messages and tracebacks.
+  function runScript(source: string, chunkName: string) {
+    setRunning(true);
+    setLogs([{ type: 'output', text: 'Executing script…', time: nowTime() }]);
+    setConsoleTab('output');
+    // Deferred so the "Executing" state paints before the synchronous VM takes
+    // over the thread. The VM cannot be pre-empted from here; see
+    // EXECUTION_CAN_BE_INTERRUPTED in src/lua/runtime.ts for the measurement.
+    setTimeout(() => {
+      const outcome = runLua({
+        source,
+        chunkName,
+        sandbox: 'strict',
+        write: (log) => setLogs((items) => [...items, { type: log.kind, text: log.text, time: nowTime() }]),
+      });
+      setRunning(false);
+      if (outcome.ok) {
+        setLogs((items) => [...items, { type: 'output', text: `Finished in ${outcome.elapsedMs} ms on ${runtimeInfo.release}.`, time: nowTime() }]);
+      }
+    }, 0);
+  }
+
+  async function execute() {
+    if (running) return;
+    if (!current.code.trim()) {
+      setLogs([{ type: 'warning', text: 'Execution skipped — the editor is empty. Write a Lua script first.', time: nowTime() }]);
+      setConsoleTab('console');
+      return;
+    }
+    if (executionMode === 'studio-test') {
+      const parsed = parseCommandInput(current.code);
+      if (!parsed.ok) {
+        setLogs([{ type: 'error', text: `Invalid Roblox Studio Test command\n${parsed.error}`, time: nowTime() }]);
+        setConsoleTab('error');
+        return;
+      }
+      const bridge = getBridge();
+      if (!bridge) {
+        setLogs([{ type: 'error', text: 'Roblox Studio Test requires the Aervyx Electron desktop bridge.', time: nowTime() }]);
+        setConsoleTab('error');
+        return;
+      }
+      setRunning(true);
+      setConsoleTab('console');
+      setLogs([{ type: 'output', text: `[AERVYX] Sending command... ${parsed.value.command}`, time: nowTime() }]);
+      console.log('[AERVYX] Sending command...', parsed.value.command);
+      try {
+        const response = await bridge.sendRobloxTestCommand(parsed.value);
+        console.log('[AERVYX] Response received...', response.id, response.ok);
+        setLogs((items) => [...items,
+          { type: response.ok ? 'output' : 'error', text: `[AERVYX] Response received... ${response.id}`, time: nowTime() },
+          { type: response.ok ? 'output' : 'error', text: response.output, time: nowTime() },
+        ]);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[AERVYX] Roblox Studio Test command failed', message);
+        setLogs((items) => [...items, { type: 'error', text: `[AERVYX] ${message}`, time: nowTime() }]);
+        try {
+          const info = await bridge.getRobloxTestInfo();
+          setStudioStatus(info.status);
+          setStudioBridgeInfo(info);
+        } catch { setStudioStatus('ERROR'); }
+      } finally { setRunning(false); }
+      return;
+    }
+    runScript(current.code, current.name);
+  }
+
+  function openStudioTestExample() {
+    setExecutionMode('studio-test');
+    updateCode('{\n  "command": "print",\n  "args": { "message": "Hello from Aervyx Studio Test" }\n}');
+    setNav('Executor');
+  }
+
+  async function copyPairingToken() {
+    try { await navigator.clipboard.writeText(studioBridgeInfo.pairingToken); }
+    catch (error) { setLogs((items) => [...items, { type: 'warning', text: `Clipboard unavailable: ${String(error)}`, time: nowTime() }]); }
+  }
   function clear() { updateCode(''); }
   function copyOutput() {
     try {
@@ -270,12 +418,23 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><img src="./aervyx-logo.png" alt="Aervyx" /><span>Aervyx</span></div>
       <div className="side-label">WORKSPACE</div>
-      <nav>{( [['Dashboard', LayoutDashboard], ['Executor', Code2], ['ScriptHub', BookOpen], ['Credits', BookOpen], ['Settings', Settings2]] as const).map(([label, Icon]) => <button className={`nav-item ${nav === label ? 'active' : ''}`} key={String(label)} onClick={() => setNav(String(label))}><Icon size={17} /><span>{label}</span>{label === 'Executor' && <span className="nav-pip" />}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="runtime-card"><div className="runtime-icon"><Zap size={16} /></div><div><strong>Lua runtime</strong><small>Embedded & sandboxed</small></div><Activity size={14} className="pulse" /></div><div className="version">AERVYX <span>v1.0.0</span></div></div>
+      <nav>{( [['Dashboard', LayoutDashboard], ['Executor', Code2], ['Roblox Studio Test', Radio], ['ScriptHub', BookOpen], ['Credits', BookOpen], ['Settings', Settings2]] as const).map(([label, Icon]) => <button className={`nav-item ${nav === label ? 'active' : ''}`} key={String(label)} onClick={() => setNav(String(label))}><Icon size={17} /><span>{label}</span>{label === 'Executor' && <span className="nav-pip" />}</button>)}</nav>
+      <div className="sidebar-bottom"><div className="runtime-card"><div className="runtime-icon"><Zap size={16} /></div><div><strong>{runtimeInfo.release}</strong><small>Embedded, sandboxed, no host access</small></div><Activity size={14} className="pulse" /></div><div className="version">AERVYX <span>v1.0.0</span></div></div>
     </aside>
     <main className="main-area">
       <header className="topbar"><div><div className="eyebrow">AERVYX / {nav.toUpperCase()}</div><h1>{nav === 'Executor' ? 'Script Executor' : nav}</h1></div><div className="window-actions"><button title="Settings"><Settings2 size={17} /></button><span className="window-divider" /><button title="Minimize">−</button><button title="Maximize">□</button><button title="Close" className="close-window">×</button></div></header>
-      {nav === 'Settings' ? <section className="settings-page">
+      {nav === 'Roblox Studio Test' ? <section className="roblox-test-page">
+        <div className="roblox-test-intro"><span className="eyebrow">LOCAL DEVELOPMENT BRIDGE</span><h2>Roblox Studio Test</h2><p>Send a small allowlisted test command to your open Studio project. Aervyx sends structured JSON only; it never forwards or runs arbitrary Lua source.</p></div>
+        <article className="roblox-test-card">
+          <div className="roblox-test-card-head"><div><strong>Connection</strong><p>Local Studio plugin heartbeat</p></div><span className={`roblox-test-status ${studioStatus.toLowerCase()}`}>{studioStatus}</span></div>
+          {studioBridgeInfo.error && <p className="roblox-test-error">{studioBridgeInfo.error}</p>}
+          <label className="roblox-test-field"><span>Local endpoint</span><code>{studioBridgeInfo.endpoint}</code></label>
+          <label className="roblox-test-field"><span>Pairing token <small>Paste into the Aervyx Studio Test plugin.</small></span><div className="roblox-token-row"><code>{studioBridgeInfo.pairingToken || 'Unavailable outside the Aervyx desktop app'}</code><button onClick={() => void copyPairingToken()} disabled={!studioBridgeInfo.pairingToken}>Copy token</button></div></label>
+          <div className="roblox-test-steps"><strong>Start the bridge</strong><ol><li>Open <code>roblox-studio-test/default.project.json</code> in Roblox Studio with Rojo, then press Play.</li><li>Install <code>AervyxStudioBridge.plugin.lua</code> as a local Studio plugin.</li><li>Paste the token above into the plugin and connect.</li><li>Return to Executor, select <b>Roblox Studio Test</b>, and execute a JSON command.</li></ol></div>
+          <button className="roblox-test-primary" onClick={openStudioTestExample}>Open a test command in the editor</button>
+        </article>
+        <p className="roblox-test-footnote">Commands are validated by Aervyx, the plugin, and the Studio server handler. Only the dedicated Aervyx test Part and the current local Studio test player are affected.</p>
+      </section> : nav === 'Settings' ? <section className="settings-page">
         <div className="settings-tabs">{(['General', 'Integrations'] as const).map((tab) => <button className={settingsTab === tab ? 'selected' : ''} key={tab} onClick={() => setSettingsTab(tab)}>{tab}</button>)}</div>
         <div className="settings-section"><span className="settings-section-label">{settingsTab.toUpperCase()}</span><span className="settings-section-rule" /></div>
         {settingsTab === 'General' ? <div className="settings-list">
@@ -300,14 +459,22 @@ export default function App() {
         })}</div>}
         <div className="scripthub-powered">Powered by ScriptBlox.com</div>
       </section> : nav === 'Credits' ? <section className="credits-page">
-        <div className="credits-list"><div className="credit-row"><span>wtzx &mdash; Developer &amp; Owner of Aervyx</span></div><div className="credit-row"><span>wtzx &mdash; UI Designer</span></div></div>
+        <div className="credits-card">
+          <div className="credits-head"><Award size={30} strokeWidth={1.8} /><h2>Credits</h2><p>Thanks to our contributors</p></div>
+          <div className="credits-rows">
+            <div className="credit-row"><Crown size={17} /><strong>wtzx</strong><span className="credit-role">&mdash; Developer &amp; Owner of Aervyx</span></div>
+            <div className="credit-row"><LayoutPanelLeft size={17} /><strong>wtzx</strong><span className="credit-role">&mdash; UI Designer</span></div>
+          </div>
+        </div>
       </section> : <section className="editor-workspace">
-        <div className="tabs-bar"><div className="tabs-scroll">{tabs.map((tab) => <button className={`script-tab ${tab.id === active ? 'active' : ''}`} key={tab.id} onClick={() => setActive(tab.id)}><span className="tab-dot" />{tab.name}{tab.dirty && <span className="dirty">●</span>}<X size={13} onClick={(event: React.MouseEvent<SVGSVGElement>) => { event.stopPropagation(); closeTab(tab.id); }} /></button>)}</div><button className="new-tab" onClick={newTab} title="New script (Ctrl+N)"><FilePlus2 size={16} /></button></div>
-        <div className="toolbar"><div className="toolbar-group"><button className="execute" onClick={execute} disabled={running}><Play size={15} fill="currentColor" />{running ? 'Running' : 'Execute'}<kbd>F6</kbd></button><button onClick={clear}><Trash2 size={15} />Clear</button><button onClick={() => { setRunning(false); setLogs((items) => [...items, { type: 'warning', text: 'Execution stopped by user.' }]); }}><Square size={14} fill="currentColor" />Stop</button></div><div className="toolbar-group"><button onClick={() => void save()}><Save size={15} />Save<kbd>Ctrl S</kbd></button><button onClick={() => void open()}><FolderOpen size={15} />Open<kbd>Ctrl O</kbd></button><span className="tool-divider" /><button className="icon-btn" title="Search in editor"><Search size={16} /></button><span className="editor-meta">Lua 5.3 <ChevronDown size={13} /></span></div></div>
-        <div className="editor-pane"><EditorPaneBoundary><Editor height="100%" theme="vs-dark" language="lua" value={current.code} onChange={(value) => updateCode(value || '')} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize, fontFamily: 'JetBrains Mono, Consolas, monospace', minimap: { enabled: false }, smoothScrolling: true, padding: { top: 16 }, lineNumbersMinChars: 3, renderLineHighlight: 'all', bracketPairColorization: { enabled: true }, scrollBeyondLastLine: false, tabSize: 4, automaticLayout: true, scrollbar: { horizontalScrollbarSize: 8, verticalScrollbarSize: 8 } }} /></EditorPaneBoundary></div>
-        <div className="console-panel"><div className="console-head"><div className="console-tabs">{[['output', 'Output'], ['console', 'Console'], ['error', 'Errors'], ['warning', 'Warnings']].map(([key, label]) => <button className={consoleTab === key ? 'selected' : ''} key={key} onClick={() => setConsoleTab(key as typeof consoleTab)}>{label}{key !== 'console' && <span className="count">{logs.filter((log) => log.type === key).length}</span>}</button>)}</div><div className="console-actions"><button onClick={() => setLogs([])}><Trash2 size={14} />Clear Console</button><button onClick={copyOutput}><Copy size={14} />Copy Output</button></div></div><div className="console-body">{(consoleTab === 'console' ? logs : logs.filter((log) => log.type === consoleTab)).map((log, index) => <div className={`log-line ${log.type}`} key={`${log.text}-${index}`}><span className="log-symbol">{log.type === 'output' ? '›' : log.type === 'error' ? '!' : '△'}</span><span>{log.text}</span></div>)}{logs.length === 0 && <div className="empty-console">No messages yet</div>}</div></div>
+        <div className="tabs-bar"><div className="tabs-scroll">{tabs.map((tab) => <button className={`script-tab ${tab.id === active ? 'active' : ''}`} key={tab.id} onClick={() => setActive(tab.id)} onContextMenu={(event) => openTabMenu(event, tab.id)}><span className="tab-dot" />{tab.name}{tab.dirty && <span className="dirty">●</span>}<X size={13} onClick={(event: ReactMouseEvent<SVGSVGElement>) => { event.stopPropagation(); deleteTab(tab.id); }} /></button>)}</div><button className="new-tab" onClick={newTab} title="New script (Ctrl+N)"><FilePlus2 size={16} /></button></div>
+        {tabMenu && <div className="tab-context-menu" style={{ left: tabMenu.x, top: tabMenu.y }} role="menu" aria-label="Script tab options"><button role="menuitem" onClick={(event) => { event.stopPropagation(); startRename(tabMenu.id); }}>Rename</button><button role="menuitem" className="danger" onClick={(event) => { event.stopPropagation(); deleteTab(tabMenu.id); }}>Delete</button></div>}
+        {renamingId !== null && <div className="rename-overlay" onClick={() => setRenamingId(null)}><div className="rename-dialog" role="dialog" aria-label="Rename script" onClick={(event) => event.stopPropagation()}><h3>Rename Script</h3><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') confirmRename(); }} onFocus={(event) => event.currentTarget.select()} spellCheck={false} aria-label="Script name" maxLength={80} /><div className="rename-actions"><button onClick={() => setRenamingId(null)}>Cancel</button><button className="primary" onClick={confirmRename} disabled={renameValue.trim().length === 0}>Rename</button></div></div></div>}
+        <div className="toolbar"><div className="toolbar-group"><div className="execution-mode-toggle" role="group" aria-label="Execution mode"><button className={executionMode === 'lua' ? 'selected' : ''} aria-pressed={executionMode === 'lua'} onClick={() => setExecutionMode('lua')}>Standalone Lua</button><button className={executionMode === 'studio-test' ? 'selected' : ''} aria-pressed={executionMode === 'studio-test'} onClick={() => setExecutionMode('studio-test')}>Roblox Studio Test</button></div><button className="execute" onClick={() => void execute()} disabled={running}><Play size={15} fill="currentColor" />{running ? 'Running' : executionMode === 'studio-test' ? 'Send Test' : 'Execute'}<kbd>F6</kbd></button><button onClick={clear}><Trash2 size={15} />Clear</button><button disabled title="A running script cannot be interrupted. Measured on this build: the host instruction hook fires, but raising from it does not unwind the running call, so a runaway loop keeps the thread until it finishes. Use a loop guard in the script itself."><Square size={14} fill="currentColor" />Stop</button></div><div className="toolbar-group"><button onClick={() => void save()}><Save size={15} />Save<kbd>Ctrl S</kbd></button><button onClick={() => void open()}><FolderOpen size={15} />Open<kbd>Ctrl O</kbd></button><span className="tool-divider" /><button className="icon-btn" title="Search in editor"><Search size={16} /></button>{executionMode === 'studio-test' ? <span className={`roblox-inline-status ${studioStatus.toLowerCase()}`}>STUDIO {studioStatus}</span> : <span className="editor-meta" title={`Embedded ${runtimeInfo.release} runtime, read from the VM itself`}>{runtimeInfo.release} <ChevronDown size={13} /></span>}</div></div>
+        <div className="editor-pane"><EditorPaneBoundary><Editor height="100%" theme="vs-dark" language={executionMode === 'studio-test' ? 'json' : 'lua'} value={current.code} onChange={(value) => updateCode(value || '')} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize, fontFamily: 'JetBrains Mono, Consolas, monospace', minimap: { enabled: false }, smoothScrolling: true, padding: { top: 16 }, lineNumbersMinChars: 3, renderLineHighlight: 'all', bracketPairColorization: { enabled: true }, scrollBeyondLastLine: false, tabSize: 4, automaticLayout: true, scrollbar: { horizontalScrollbarSize: 8, verticalScrollbarSize: 8 } }} /></EditorPaneBoundary></div>
+        <div className="console-panel"><div className="console-head"><div className="console-tabs">{[['output', 'Output'], ['console', 'Console'], ['error', 'Errors'], ['warning', 'Warnings']].map(([key, label]) => <button className={consoleTab === key ? 'selected' : ''} key={key} onClick={() => setConsoleTab(key as typeof consoleTab)}>{label}{key !== 'console' && <span className="count">{logs.filter((log) => log.type === key).length}</span>}</button>)}</div><div className="console-actions"><button onClick={() => setLogs([])}><Trash2 size={14} />Clear Console</button><button onClick={copyOutput}><Copy size={14} />Copy Output</button></div></div><div className="console-body">{(consoleTab === 'console' ? logs : logs.filter((log) => log.type === consoleTab)).map((log, index) => <div className={`log-line ${log.type}`} key={`${log.text}-${index}`}><span className="log-symbol">{log.type === 'output' ? '›' : log.type === 'error' ? '!' : '▲'}</span><span className="log-text">{log.text}</span>{log.time && <time className="log-time">{log.time}</time>}</div>)}{logs.length === 0 && <div className="empty-console">No messages yet</div>}</div></div>
       </section>}
-      <footer className="statusbar"><div><span className="status-dot" />Ready</div><div className="status-right"><span>UTF-8</span><span>LF</span><label>Font <select value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))}><option value="12">12px</option><option value="14">14px</option><option value="16">16px</option></select></label><span>Ln 1, Col 1</span></div></footer>
+      <footer className="statusbar"><div><span className="status-dot" />Ready</div><div className="status-right"><span className="statusbar-version">Executor Version: 1.0.0</span><span>UTF-8</span><span>LF</span><label>Font <select value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))}><option value="12">12px</option><option value="14">14px</option><option value="16">16px</option></select></label><span>Ln 1, Col 1</span></div></footer>
     </main>
   </div>;
 }

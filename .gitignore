@@ -3,3 +3,29 @@ dist/
 dist-electron/
 release/
 *.log
+
+# Local credential / environment dumps that must never reach the remote.
+# These hold Windows Credential Manager target names, account identifiers and
+# token labels for Roblox Studio, Microsoft, GitHub and Mojang (labels only --
+# no secret values). Verified absent from origin/main and HEAD, so nothing is
+# public today. They ARE reachable from the local refs/cline/checkpoints/* refs,
+# so never push with `--all` / `--mirror` or copy .git/ off this machine.
+_cred.txt
+_authprobe.txt
+_dnscheck.txt
+_vcheck.txt
+
+# Local reverse-engineering / build-probe scratch space and extracted asar dumps.
+_probe/
+_probe_*.html
+_probe_*.cjs
+_*_asar/
+
+# Packaged binaries and build artifacts (build outputs, not sources).
+release2/
+*.exe
+*.asar
+*.obj
+
+# C++ build output for the injection lab practice target.
+injection-lab/target/build/

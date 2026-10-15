@@ -1,6 +1,6 @@
 # Aervyx — Download Site
 
-The public download landing page for **Aervyx**, a fast, keyless Lua executor for Windows 10/11.
+The public download landing page for **Aervyx**, your powerful desktop experience for Windows.
 
 Built with **Vite + React 19 + TypeScript** and deployed on **Vercel**.
 
@@ -24,31 +24,17 @@ npm run build     # tsc -b && vite build  -> dist/
 npm run preview   # serve the production build locally
 ```
 
-## The installer download
+## The Aervyx Windows application
 
 Every Download button points at one root-relative URL defined in `src/App.tsx`:
 
 ```ts
-const DOWNLOAD_URL = '/downloads/Aervyx-Setup.exe';
+const DOWNLOAD_URL = '/downloads/Aervyx.exe';
 ```
 
-That file is served from `public/downloads/Aervyx-Setup.exe`. Because the path is
-root-relative, the same link works on the `*.vercel.app` preview URL and on the
-production domain, and never needs to change when the domain changes.
-
-To publish a new installer, rebuild it in the parent Electron project and copy the
-artifact over the existing file:
-
-```powershell
-cd ..
-npm run dist        # npm run build && electron-builder --win nsis -> release/Aervyx-Setup.exe
-Copy-Item release\Aervyx-Setup.exe aervyx-download-site\public\downloads\Aervyx-Setup.exe
-```
-
-> **Vercel Hobby plan limits static files to 100 MB.** Keep `Aervyx-Setup.exe` under
-> that size or the deployment will be rejected. If the installer grows past the cap,
-> host it on GitHub Releases / Cloudflare R2 instead and point `DOWNLOAD_URL` at that
-> absolute URL.
+The direct Windows executable is served from `public/downloads/Aervyx.exe`. The same
+root-relative URL works on Vercel preview deployments and the production domain. Keep this file
+available in the deployment output whenever building or deploying the site.
 
 ## Deploying to Vercel
 
@@ -67,8 +53,8 @@ npx vercel build
 npx vercel deploy --prebuilt --prod
 ```
 
-`vercel build` + `--prebuilt` deploys the locally built static output, which is the
-safest way to guarantee `public/downloads/Aervyx-Setup.exe` ships with the deployment.
+`vercel build` + `--prebuilt` deploys the locally built static output, including
+`public/downloads/Aervyx.exe`.
 
 Redeploys afterwards are just:
 
@@ -100,16 +86,15 @@ Vercel auto-detects the rest:
 
 ```
 public/
-  aervyx-logo.png        branding asset
-  favicon.svg            legacy favicon
-  icons.svg              legacy sprite
+  aervyx-logo.png                    branding asset
+  favicon.png                        favicon
   downloads/
-    Aervyx-Setup.exe     the Windows installer served to visitors
+    Aervyx.exe                       the Windows application served to visitors
 src/
-  App.tsx                single-page landing site
-  App.css                all site styling + fonts
-  index.css              global resets
-  main.tsx               React entry point
-index.html               document head (SEO, Open Graph, fonts)
-vercel.json              cache-control headers
+  App.tsx                            single-page landing site
+  App.css                            all site styling + fonts
+  index.css                          global resets
+  main.tsx                           React entry point
+index.html                           document head (SEO, Open Graph, fonts)
+vercel.json                          cache-control + download headers
 ```

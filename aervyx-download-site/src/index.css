@@ -1,1 +1,26 @@
-*{box-sizing:border-box}html{background:#08070d}body{margin:0;min-width:320px}#root{min-height:100vh}button,input{font:inherit}
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #08060d;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #08060d;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+a {
+  font: inherit;
+}

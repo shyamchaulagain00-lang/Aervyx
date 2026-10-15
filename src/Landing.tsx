@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Activity, BookOpen, Code2, FilePlus2, FolderOpen, Play, Search, Settings2, Zap } from 'lucide-react';
 import './landing.css';
 
@@ -31,6 +32,60 @@ function DiscordLink() {
   );
 }
 
+// Center-page showcase image. On devices with a mouse the frame gently tilts
+// and follows the cursor (rAF-throttled, smooth CSS transitions, and it eases
+// back to rest on leave). On touch devices (no hover) it floats instead.
+function ShowcaseImage() {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef(0);
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  function handleMove(event: React.PointerEvent<HTMLDivElement>) {
+    const frame = frameRef.current;
+    if (!frame || event.pointerType === 'touch') return;
+    const rect = frame.getBoundingClientRect();
+    const px = (event.clientX - rect.left) / rect.width - 0.5;
+    const py = (event.clientY - rect.top) / rect.height - 0.5;
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      frame.style.setProperty('--tilt-x', `${(-py * 6).toFixed(2)}deg`);
+      frame.style.setProperty('--tilt-y', `${(px * 8).toFixed(2)}deg`);
+      frame.style.setProperty('--shift-x', `${(px * 8).toFixed(1)}px`);
+      frame.style.setProperty('--shift-y', `${(py * 8).toFixed(1)}px`);
+      frame.classList.add('is-live');
+    });
+  }
+
+  function handleLeave() {
+    const frame = frameRef.current;
+    if (!frame) return;
+    cancelAnimationFrame(rafRef.current);
+    frame.classList.remove('is-live');
+    frame.style.setProperty('--tilt-x', '0deg');
+    frame.style.setProperty('--tilt-y', '0deg');
+    frame.style.setProperty('--shift-x', '0px');
+    frame.style.setProperty('--shift-y', '0px');
+  }
+
+  return (
+    <section className="showcase-section" id="showcase">
+      <div className="section-kicker"><span /> AERVYX IN ACTION <span /></div>
+      <h2>See the workspace.</h2>
+      <div
+        ref={frameRef}
+        className="showcase-frame"
+        onPointerMove={handleMove}
+        onPointerLeave={handleLeave}
+        onPointerOut={handleLeave}
+      >
+        <img src="/aervyx-showcase.jpg" alt="Aervyx Executor workspace" draggable={false} loading="lazy" decoding="async" />
+      </div>
+      <p className="showcase-caption">Dark. Focused. Built for momentum.</p>
+    </section>
+  );
+}
+
 export default function Landing() {
-  return <div className="download-site"><div className="ambient ambient-one" /><div className="ambient ambient-two" /><nav className="site-nav"><a className="site-brand" href="#top"><img src="/aervyx-logo.png" alt="Aervyx" /><span>Aervyx</span></a><a className="nav-download" href={DOWNLOAD_URL} download><FilePlus2 size={15} /> Download</a></nav><DiscordLink /><main id="top"><section className="hero-section"><div className="hero-copy"><div className="eyebrow-pill"><span /> BUILT FOR MOMENTUM</div><h1>Aervyx</h1><p className="hero-tagline">Fast <b>•</b> Keyless <b>•</b> Reliable Executor</p><p className="hero-description">A sharp, streamlined Lua workspace for writing, discovering, and running scripts with confidence.</p><a className="hero-download" href={DOWNLOAD_URL} download><FilePlus2 size={18} /> Download Aervyx <span>→</span></a><p className="hero-meta"><Activity size={13} /> Windows 10/11 <span /> v1.0.0</p></div><div className="hero-orbit"><div className="orbit-ring" /><div className="hero-mark"><img src="/aervyx-logo.png" alt="" /></div></div></section><section className="preview-section"><div className="section-kicker"><span /> THE WORKSPACE <span /></div><h2>Everything you need.<br /><em>Nothing in the way.</em></h2><p className="section-lead">A precise executor interface that keeps your attention on the script.</p><ExecutorPreview /></section><section className="features-section"><div className="section-kicker"><span /> WHY AERVYX <span /></div><h2>Made to feel <em>effortless.</em></h2><div className="feature-grid">{features.map(({ icon: Icon, title, text }) => <article className="feature-card" key={title}><div className="feature-icon"><Icon size={18} /></div><h3>{title}</h3><p>{text}</p></article>)}</div></section><section className="final-cta"><div><div className="eyebrow-pill"><span /> READY WHEN YOU ARE</div><h2>Start building with Aervyx.</h2><p>Download the cleanest way to run your scripts.</p></div><a className="hero-download" href={DOWNLOAD_URL} download><FilePlus2 size={18} /> Download for Windows <span>→</span></a></section></main><footer><div className="footer-brand"><Code2 size={15} /> Aervyx</div><span>© 2026 Aervyx. All rights reserved.</span><span>Fast • Keyless • Reliable</span></footer></div>;
+  return <div className="download-site"><div className="ambient ambient-one" /><div className="ambient ambient-two" /><nav className="site-nav"><a className="site-brand" href="#top"><img src="/aervyx-logo.png" alt="Aervyx" /><span>Aervyx.com</span></a><a className="nav-download" href={DOWNLOAD_URL} download><FilePlus2 size={15} /> Download</a></nav><DiscordLink /><main id="top"><section className="hero-section"><div className="hero-copy"><div className="eyebrow-pill"><span /> BUILT FOR MOMENTUM</div><h1>Aervyx</h1><p className="hero-tagline">Fast <b>•</b> Keyless <b>•</b> Reliable Executor</p><p className="hero-description">A sharp, streamlined Lua workspace for writing, discovering, and running scripts with confidence.</p><a className="hero-download" href={DOWNLOAD_URL} download><FilePlus2 size={18} /> Download Aervyx <span>→</span></a><p className="hero-meta"><Activity size={13} /> Windows 10/11 <span /> v1.0.0</p></div><div className="hero-orbit"><div className="orbit-ring" /><div className="hero-mark"><img src="/aervyx-logo.png" alt="" /></div></div></section><ShowcaseImage /><section className="preview-section"><div className="section-kicker"><span /> THE WORKSPACE <span /></div><h2>Everything you need.<br /><em>Nothing in the way.</em></h2><p className="section-lead">A precise executor interface that keeps your attention on the script.</p><ExecutorPreview /></section><section className="features-section"><div className="section-kicker"><span /> WHY AERVYX <span /></div><h2>Made to feel <em>effortless.</em></h2><div className="feature-grid">{features.map(({ icon: Icon, title, text }) => <article className="feature-card" key={title}><div className="feature-icon"><Icon size={18} /></div><h3>{title}</h3><p>{text}</p></article>)}</div></section><section className="final-cta"><div><div className="eyebrow-pill"><span /> READY WHEN YOU ARE</div><h2>Start building with Aervyx.</h2><p>Download the cleanest way to run your scripts.</p></div><a className="hero-download" href={DOWNLOAD_URL} download><FilePlus2 size={18} /> Download for Windows <span>→</span></a></section></main><footer><div className="footer-brand"><Code2 size={15} /> Aervyx.com</div><span>© 2026 Aervyx. All rights reserved.</span><span>Fast • Keyless • Reliable</span></footer></div>;
 }

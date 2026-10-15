@@ -1,0 +1,6 @@
+# Build output and any locally fetched Luau checkout are generated, not source.
+build/
+build-cmake/
+third_party/
+*.obj
+*.exe

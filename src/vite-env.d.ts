@@ -5,17 +5,16 @@ declare module '*?worker' {
   export default workerConstructor;
 }
 
-interface Window { aervyx: { openFile: () => Promise<{ path: string; content: string } | null>; saveFile: (payload: { path?: string; content: string }) => Promise<string | null>; restartApp: () => Promise<void>; openFolder: (folder: 'workspace' | 'autoexec') => Promise<void>; setAlwaysOnTop: (value: boolean) => Promise<void> } }
-
-declare module 'lucide-react' {
-	import type { FC, SVGProps } from 'react';
-	type Icon = FC<SVGProps<SVGSVGElement> & { size?: number | string; strokeWidth?: number | string; absoluteStrokeWidth?: boolean }>;
-	export const Activity: Icon; export const BookOpen: Icon; export const ChevronDown: Icon; export const Code2: Icon;
-	export const Copy: Icon; export const FilePlus2: Icon; export const FolderOpen: Icon; export const Gear: Icon;
-	export const LayoutDashboard: Icon; export const Play: Icon; export const Save: Icon; export const Search: Icon;
-	export const Settings2: Icon; export const Square: Icon; export const Trash2: Icon;
-	export const X: Icon; export const Zap: Icon;
-}
+interface Window { aervyx: {
+	openFile: () => Promise<{ path: string; content: string } | null>;
+	saveFile: (payload: { path?: string; content: string }) => Promise<string | null>;
+	restartApp: () => Promise<void>;
+	openFolder: (folder: 'workspace' | 'autoexec') => Promise<void>;
+	setAlwaysOnTop: (value: boolean) => Promise<void>;
+	getRobloxTestInfo: () => Promise<{ status: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR'; endpoint: string; pairingToken: string; error: string }>;
+	sendRobloxTestCommand: (command: { command: string; args: Record<string, unknown> }) => Promise<{ id: string; ok: boolean; output: string }>;
+	onRobloxTestStatus: (callback: (status: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR') => void) => () => void;
+} }
 
 declare module 'fengari-web' {
 	export const lua: any; export const lauxlib: any; export const lualib: any;

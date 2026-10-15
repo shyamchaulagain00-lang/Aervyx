@@ -1,10 +1,21 @@
 {
   "name": "aervyx",
   "version": "1.0.0",
+  "type": "module",
   "description": "Aervyx Lua Development Environment",
   "main": "dist-electron/main.cjs",
   "author": "Aervyx",
   "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "dev:desktop": "npm run build && node scripts/dev-desktop.mjs",
+    "start": "electron .",
+    "build": "tsc --noEmit && vite build && esbuild electron/main.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/main.cjs && esbuild electron/preload.cjs --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs",
+    "dist": "npm run build && electron-builder --win nsis",
+    "test:lua": "esbuild scripts/test-lua-runtime.mjs --bundle --platform=node --format=esm --outfile=node_modules/.aervyx-test/lua-runtime.test.mjs --log-level=error && node node_modules/.aervyx-test/lua-runtime.test.mjs",
+    "test:bridge": "esbuild scripts/test-roblox-bridge.mjs --bundle --platform=node --format=esm --outfile=node_modules/.aervyx-test/roblox-bridge.test.mjs --log-level=error && node node_modules/.aervyx-test/roblox-bridge.test.mjs",
+    "test": "npm run test:lua && npm run test:bridge"
+  },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
     "fengari-web": "^0.1.4",
@@ -13,5 +24,43 @@
     "monaco-themes": "^0.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.6.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.2",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "build": {
+    "appId": "com.aervyx.devstudio",
+    "productName": "Aervyx",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": true
+    }
   }
 }

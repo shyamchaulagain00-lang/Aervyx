@@ -1,0 +1,3 @@
+﻿cl_running=0
+exe_time=09/18/2026 18:31:04
+warnings=0

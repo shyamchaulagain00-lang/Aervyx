@@ -1,0 +1,26 @@
+{
+  "name": "AervyxRobloxStudioTest",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "AervyxTest": {
+        "$className": "Folder",
+        "Ready": { "$className": "RemoteEvent" },
+        "Output": { "$className": "RemoteEvent" },
+        "Acknowledge": { "$className": "RemoteEvent" }
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "AervyxTestServer": { "$path": "src/server/AervyxTestServer.server.lua" }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "AervyxTestClient": { "$path": "src/client/AervyxTestClient.client.lua" }
+      }
+    }
+  }
+}

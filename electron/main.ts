@@ -2,8 +2,10 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, net, shell } from 'electron'
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { appendFileSync } from 'node:fs';
+import { LocalRobloxTestBridge } from './roblox-test-bridge';
 
 let mainWindow: BrowserWindow;
+const robloxTestBridge = new LocalRobloxTestBridge();
 const createWindow = () => {
   const win = new BrowserWindow({ width: 1440, height: 920, minWidth: 1050, minHeight: 680, title: 'Aervyx', backgroundColor: '#08090d', icon: path.join(__dirname, '../dist/aervyx-logo.png'), webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'preload.cjs') } });
   mainWindow = win;
@@ -54,5 +56,24 @@ ipcMain.handle('folder:open', async (_event, folder: 'workspace' | 'autoexec') =
   await shell.openPath(target);
 });
 
-app.whenReady().then(() => { Menu.setApplicationMenu(null); createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); });
+ipcMain.handle('roblox-test:get-info', (_event) => {
+  if (!mainWindow || _event.sender !== mainWindow.webContents) throw new Error('Untrusted renderer.');
+  return robloxTestBridge.getInfo();
+});
+ipcMain.handle('roblox-test:submit', (event, command: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted renderer.');
+  return robloxTestBridge.submit(command);
+});
+robloxTestBridge.subscribe((status) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('roblox-test:status', status);
+});
+
+app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
+  try { await robloxTestBridge.start(); }
+  catch (error) { robloxTestBridge.broker.markError(`Unable to start local bridge: ${error instanceof Error ? error.message : String(error)}`); }
+  createWindow();
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { void robloxTestBridge.stop(); });

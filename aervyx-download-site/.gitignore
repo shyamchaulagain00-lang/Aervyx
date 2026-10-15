@@ -15,8 +15,8 @@ dist-ssr
 # Vercel CLI local project link
 .vercel
 
-# The installer is ~78 MB and is shipped to Vercel via the prebuilt output,
-# not via git. Keeping it out of version control avoids bloating the repo.
+# Download binaries are shipped to Vercel via the prebuilt output, not via git.
+# Keeping them out of version control avoids bloating the repo.
 public/downloads/*.exe
 
 # Editor directories and files
